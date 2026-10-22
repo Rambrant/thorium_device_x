@@ -34,4 +34,13 @@ FetchContent_Declare(thorium
 FetchContent_MakeAvailable(thorium)
 
 include(${thorium_SOURCE_DIR}/cmake/ThoriumDeployment.cmake)
+
+# What the logs call this DUT. Set here, and only when nobody has said otherwise (so
+# -DTHORIUM_DUT_NAME=... on a configure still wins), because the framework no longer
+# supplies a name of its own: from the release after v0.1.2 an unset one is
+# "unknown". Setting it now changes nothing at v0.1.2 and saves the upgrade a surprise.
+if(NOT DEFINED THORIUM_DUT_NAME)
+    set(THORIUM_DUT_NAME "DeviceX")
+endif()
+
 thorium_deployment()
