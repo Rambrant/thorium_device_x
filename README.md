@@ -22,6 +22,14 @@ ctest --test-dir build/debug        # this repository's own tests
 ./build/debug/bin/run_scripts       # the suite; --help lists every flag
 ```
 
+**In an IDE, use the preset.** Thorium needs GCC 16 (C++26 reflection and contracts), and
+the compiler is chosen only by `CMakePresets.json` -- an IDE profile that ignores it
+falls back to the system compiler (AppleClang on macOS) and the configure stops with
+"Thorium needs GCC 16 or newer". In CLion, enable the `macos-debug` (or your
+platform's) profile under Settings | Build, Execution, Deployment | CMake and disable
+the default "Debug" one; any other IDE needs the same compiler passed as
+`-DCMAKE_CXX_COMPILER=...`.
+
 The first configure downloads the framework (a few MB) into `build/debug/_deps`.
 Nothing of it is committed here.
 
