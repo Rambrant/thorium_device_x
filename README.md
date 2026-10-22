@@ -31,7 +31,7 @@ Nothing of it is committed here.
 run says what it was built with in its report header:
 
 ```
-Framework         Thorium 0.1.2 (V0.1.2)
+Framework         Thorium 0.1.2 (v0.1.2)
 ```
 
 To upgrade: change the tag, read the framework's
