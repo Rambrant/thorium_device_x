@@ -35,10 +35,10 @@ Framework         Thorium 0.1.2 (v0.1.2)
 ```
 
 To upgrade: change the tag, read the framework's
-[`CHANGELOG.md`](https://github.com/Rambrant/thorium/blob/V0.1.2/CHANGELOG.md) for each
+[`CHANGELOG.md`](https://github.com/Rambrant/thorium/blob/v0.1.2/CHANGELOG.md) for each
 version in between, make the edits it lists, and run the tests. The rules for what a
 version number promises are in the framework's
-[`RELEASING.md`](https://github.com/Rambrant/thorium/blob/V0.1.2/RELEASING.md).
+[`RELEASING.md`](https://github.com/Rambrant/thorium/blob/v0.1.2/RELEASING.md).
 
 To work on the framework and Device X together, point the build at a checkout:
 
