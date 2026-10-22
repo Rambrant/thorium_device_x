@@ -1,0 +1,177 @@
+# suite/ -- test scripts and the test catalog
+
+This directory holds the test scripts themselves and the catalog listing
+them -- the "what to run" side of the test suite. DUT-specific data (the
+adapter wiring, tolerance variants, the Measure singleton) lives under
+`dut/` instead -- see `dut/README.md` -- since it's a property of
+the device being tested, not of how tests are organized.
+
+`test_catalog.inc` -- the `GROUP`/`TEST`/`END_GROUP` test catalog (see
+`framework/core/include/core/catalog/test_catalog.hpp`) -- lists which scripts exist and
+what to call them. Unlike the criteria variants, there's only one of these
+(no `THORIUM_TEST_CATALOG_VARIANT` -- a build represents one hardware
+scenario, but always runs the same set of tests). See
+`core/catalog/active_test_catalog.hpp` for how it's consumed.
+
+The same file may declare `RUN_SETUP`/`RUN_TEARDOWN` -- the code bracketing the
+selected scripts, typically powering the rig up and back down. Both are
+optional and independent, and each takes a description the logs head it with
+(every hook is called `setup` or `teardown`, so that prose is what tells one
+from another); this catalog declares both -- `RUN_SETUP( rigPowerOn, "...")`
+and `RUN_TEARDOWN( rigPowerOff, "...")`, in `scripts/rig_power_on.cpp` and
+`scripts/rig_power_off.cpp`. See the README's "Bracket a run with setup and
+teardown" for how to add a pair, and `core::RunHook` for what they promise.
+
+A single `GROUP` may bracket itself the same way, with unqualified `SETUP`/
+`TEARDOWN` rows in its own table -- the qualifier is on the pair above because
+that one sits alone at file scope, where nothing around it says what it
+brackets. A group's hooks run only if something in that group was selected, and
+once per `--repeat` pass rather than once per run, which is the whole of the
+difference and the reason to reach for them: a rig state that only one group's
+tests need should not be established for a run that selected none of them. See
+the README's "Bracket one group".
+
+Two groups here declare one. `Transient` takes the primary AC input away and
+`Capacitance` takes the battery rail down, and in both cases the *taking away*
+is in the script while the *putting back* is in the teardown — which is the
+split worth understanding before writing a third. A teardown runs whether or not
+the test did (the runner constructs its guard before the group's setup), so a
+restore written at the end of a script only happens on the path where the script
+reaches its end. The two groups differ in why their script drops a rail at all:
+for `Transient` it is the stimulus being measured, for `Capacitance` it is a
+precondition the framework enforces — a capacitance reading sources into the
+node it measures, so `core::requiresDeadNode` refuses to route one onto a live
+rail (`core/verbs/interlock.hpp`).
+
+The pair is worth reading for the distinction it draws against `hal::safeRig()`,
+which runs immediately after the teardown on every exit and looks like the same
+job: safing is the unconditional, unordered crash path, while these are the
+normal one and exist to express the one thing safing deliberately cannot -- a
+sequence. Up: relay closed dead, then energised, primary before the alternates.
+Down: the exact inverse.
+
+Both of those are drawn: [`doc/diagrams/lifecycle.svg`](https://github.com/Rambrant/thorium/blob/V0.1.2/doc/diagrams/lifecycle.svg)
+puts all three brackets and the safing pass on one timeline, and
+[`doc/diagrams/source.svg`](https://github.com/Rambrant/thorium/blob/V0.1.2/doc/diagrams/source.svg) is the `Connect, Apply ...
+Remove, Disconnect` nesting a power-up hook is made of. Only the setup returns a meaningful verdict -- it reads
+each source back, and a `false` stops the run before the first script.
+
+The hooks are also the only functions in this directory that return anything at
+all. A *script* returns `void`: its verdict is derived from the checks it
+recorded, at the point the runner closes the test (`core::Journal::endTest`), so
+there is no flag to fold and no way for a script's answer to disagree with its
+own log. A hook cannot work that way because it runs outside any test bracket --
+there is no per-test event stream to derive from -- which is exactly why
+`core::RunHook` is a distinct type from `core::TestScript` rather than the same
+shape under another name.
+
+`scripts.hpp` holds the test scripts' declarations, at global scope
+deliberately (see the comment there) -- which is what lets
+`core/catalog/active_test_catalog.hpp` name one directly in a `TEST(...)` without
+knowing any suite-specific namespace at all. It is declarations *only*: that
+header is compiled into `main.cpp` via `THORIUM_TEST_SCRIPTS`, which has no
+use for instruments or criteria tables.
+
+`prelude.hpp` is the other half of that split and is what a script actually
+includes -- everything a script body is written against, in one line:
+`scripts.hpp` itself, the rig's instrument globals, `Measure`/`Apply`/
+`Verify`/`Fail`, the merged criteria tables, and the adapter points. A script
+therefore begins with exactly
+
+```cpp
+#include "../prelude.hpp"
+```
+
+and nothing else. Which framework header supplies `Verify` and which supplies
+`Measure` is not something a test engineer writing a script should have to
+carry; before this split the two scripts here had already drifted to different
+answers. Note that `tests/` does *not* use the prelude -- see below.
+
+Most of that list is not this suite's: the rig's globals, the verbs, `Verify`/
+`Fail` and the criteria vocabulary come from the framework's
+`framework/runner/include/runner/prelude.hpp`, shared by every deployment. This
+`prelude.hpp` adds only the two things that name this deployment -- its
+`scripts.hpp` and its DUT's `adapter.inc`.
+
+`scripts/` holds the scripts' definitions, one `.cpp` per script -- not built
+via a `CMakeLists.txt` of its own (this directory has none, deliberately), but
+discovered by `framework/runner/CMakeLists.txt`.
+
+`tests/` holds the tests *of* this suite's content -- the scripts -- plus
+`test_criteria_variants_compile.cpp`, which tests the criteria data that
+actually lives in `dut/` (kept here rather than there since it's a
+test, following the same "content in one place, tests alongside the rest
+of the test-script tests" split `dut/README.md` also describes).
+
+These deliberately include `scripts.hpp`, not `prelude.hpp`: a test of a
+script is not a script. It calls one and injects its readings by point
+*name* (`Measure.inject( "Output5V", ...)`), so it needs the `Measure` verb
+and the quantity types and none of the criteria or adapter tables -- which
+is also what lets the `scripts_tests` target build without the criteria
+compile definitions, those being `PRIVATE` to the `scripts` library.
+
+They reach a script's verdict through `core/testing/verdict.hpp`'s `verdictOf( script)`,
+which does what the runner does around a script -- open a journal test bracket,
+run it, close the bracket and take the answer -- since a script no longer
+returns one. Two things follow that are worth knowing when writing one of these:
+the "a script that recorded no check cannot pass" rule applies here too (it
+lives in `endTest`, not in the runner), and a test that only wants the outcome
+needs no recording sink at all -- only one asserting on the individual *rows*
+does.
+
+What is *not* here is the black-box tests over the *binary* -- the ones that run
+the built `run_scripts` as a subprocess and assert on its stdout, its artifacts
+and its exit status. Those are deployment content too, but not *suite* content:
+what they assert spans all three legs at once (this suite's group and test names,
+this DUT's name in the report header, this rig's instruments in the log), so they
+sit in a directory of their own beside this one -- `acceptance/`, see
+`acceptance/README.md`.
+
+They could not have lived under `tests/` in any case: `add_layer_tests()` globs
+that directory with `GLOB_RECURSE` (see `cmake/FetchGTest.cmake`), so at any
+depth they would also be compiled into `scripts_tests`, which does not define the
+paths they need.
+
+## Layout
+
+```
+suite/
+    test_catalog.inc
+    scripts.hpp
+    prelude.hpp
+    scripts/
+        fuse_register_script.cpp
+        supply_rail_script.cpp
+        console_script.cpp
+        ac_dropout_script.cpp
+        bulk_capacitance_script.cpp
+        rig_power_on.cpp             # the catalog's RUN_SETUP, not a test
+        rig_power_off.cpp            # the catalog's RUN_TEARDOWN, not a test
+        transient_bracket.cpp        # the Transient group's SETUP/TEARDOWN pair
+        capacitance_bracket.cpp      # the Capacitance group's SETUP/TEARDOWN pair
+    tests/
+        test_fuse_register_script.cpp
+        test_supply_rail_script.cpp
+        test_console_script.cpp
+        test_ac_dropout_script.cpp
+        test_bulk_capacitance_script.cpp
+        test_rig_power_on.cpp
+        test_rig_power_off.cpp
+        test_transient_bracket.cpp
+        test_criteria_variants_compile.cpp
+```
+
+A group's bracket is one file holding both hooks, where the run-level pair is
+split across two. That is mechanism rather than filing: a bracket exists to
+carry what the setup found across to the teardown, so the pair has to be one
+translation unit for there to be anything to share. `rig_power_on.cpp` and
+`rig_power_off.cpp` share nothing — each is written against the rig's stated
+setpoints, not against what the other one found.
+
+Related: `framework/runner` (not this directory) is the runner -- `main.cpp` plus the
+two build targets (`scripts`, `run_scripts`) it needs -- and it is framework,
+packaged with `core` and `hal`, holding no DUT-specific content at all. It
+reaches this directory the same way `framework/hal` reaches `rig/`: as a path
+(`THORIUM_SUITE_DIR`), which is why this directory stays free of build files.
+`dut/` holds the DUT-specific data itself -- see `dut/README.md`. `acceptance/`
+holds the black-box tests over the built binary -- see `acceptance/README.md`.
