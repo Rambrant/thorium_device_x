@@ -1,5 +1,6 @@
 // ReSharper disable once CppMissingIncludeGuard
 
+#include "hal/topology/adapter.hpp"
 //
 // Device X on its standard adapter. Each named point maps to where it lands
 // on the VPC90 connector array -- and to nothing else. A point is a pinout
