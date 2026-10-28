@@ -48,6 +48,49 @@ version in between, make the edits it lists, and run the tests. The rules for wh
 version number promises are in the framework's
 [`RELEASING.md`](https://github.com/Rambrant/thorium/blob/v0.1.2/RELEASING.md).
 
+## Building on an air-gapped rig computer
+
+The framework is the only thing the build downloads, and `THORIUM_REPOSITORY` says where
+it comes from. `GIT_TAG` stays pinned as above; on a rig with no network you point the
+repository at a copy on local disk or on a share, and the build still checks out exactly
+that tag (it stops if the tag is missing from the copy).
+
+**On a connected machine, once per framework version:**
+
+```bash
+git clone --mirror https://github.com/Rambrant/thorium.git thorium.git
+```
+
+(Later, `git -C thorium.git remote update` brings it up to date.) Copy `thorium.git/`
+to the rig computer, say to `/opt/thorium.git`, together with this repository.
+
+**On the rig computer:**
+
+```bash
+cmake --preset linux-release -DTHORIUM_REPOSITORY=/opt/thorium.git
+cmake --build build/release
+./build/release/bin/run_scripts
+```
+
+The setting is remembered in that build directory. To make it permanent for this
+machine, put it in a `CMakeUserPresets.json` (not committed) that inherits the platform
+preset and sets `THORIUM_REPOSITORY`.
+
+**Upgrading the framework offline:** refresh the mirror on the connected machine, copy it
+over, check the tag arrived (`git -C /opt/thorium.git tag -l v0.1.3`), then change
+`GIT_TAG` here and follow the upgrade steps above.
+
+Things that go wrong:
+
+- *"dubious ownership"* from git: the copy belongs to another user. `chown` it, or
+  `git config --global --add safe.directory /opt/thorium.git`.
+- *Tag not found*: the mirror is older than `GIT_TAG`. Refresh it.
+- The GCC 16 toolchain has to be on the rig computer too; that is not something this
+  repository can bring.
+
+Once a build directory has been configured, the framework lives in its `_deps/`, so
+rebuilding needs no mirror; only a fresh build directory, or a changed `GIT_TAG`, does.
+
 To work on the framework and Device X together, point the build at a checkout:
 
 ```bash
